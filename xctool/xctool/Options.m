@@ -178,6 +178,10 @@
                         description:@"Set the user default 'default' to 'value'"
                           paramName:@"-DEFAULT=VALUE"
                               mapTo:@selector(addUserDefault:)],
+    [Action actionOptionWithName:@"withoutXcode"
+                         aliases:nil
+                     description:@"Build without detecting settings from Xcode"
+                         setFlag:@selector(setWithoutXcode:)],
     ];
 }
 
@@ -325,7 +329,10 @@
     return (BOOL)(exists && isDirectory);
   };
 
-  if (self.workspace == nil && self.project == nil && self.findTarget == nil) {
+  if (self.withoutXcode) {
+    *xcodeSubjectInfoOut = [[[XcodeSubjectInfo alloc] init] autorelease];
+    return YES;
+  } else if (self.workspace == nil && self.project == nil && self.findTarget == nil) {
     NSString *defaultProject = [self findDefaultProjectErrorMessage:errorMessage];
     if (defaultProject == nil) {
       return NO;
@@ -422,7 +429,7 @@
     *errorMessage = [NSString stringWithFormat:@"Project must end in .xcodeproj: %@", self.project];
     return NO;
   }
-  
+
   if (self.resultBundlePath != nil) {
     BOOL isDirectory = NO;
     BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:self.resultBundlePath isDirectory:&isDirectory];
@@ -505,7 +512,7 @@
     // Map SDK param to actual SDK name.  This allows for aliases like 'iphoneos' to map
     // to 'iphoneos6.1'.
     self.sdk = sdksAndAliases[self.sdk];
-    
+
     // Xcode 5's xcodebuild has a bug where it won't build targets for the
     // iphonesimulator SDK.  It fails with...
     //
@@ -640,7 +647,7 @@
   if (self.resultBundlePath != nil) {
     [arguments addObjectsFromArray:@[@"-resultBundlePath", self.resultBundlePath]];
   }
-    
+
   [_buildSettings enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop){
     [arguments addObject:[NSString stringWithFormat:@"%@=%@", key, obj]];
   }];

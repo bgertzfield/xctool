@@ -61,6 +61,8 @@
 
 @property (nonatomic, retain) NSMutableArray *actions;
 
+@property (nonatomic, assign) BOOL withoutXcode;
+
 /**
  Returns the command-line arguments that were passed to xctool, and which should
  carry through to the xcodebuild commands that xctool spawns.
