@@ -49,11 +49,35 @@
 
   if (buildSettings) {
     info.buildSettings = buildSettings;
+    [self populateInfo:info
+           forTestable:testable
+         buildSettings:buildSettings
+               cpuType:cpuType];
   } else {
     info.buildSettingsError = buildSettingsError;
-    return info;
   }
 
+  return info;
+}
+
++ (instancetype)infoForTestable:(Testable *)testable
+                  buildSettings:(NSDictionary *)buildSettings
+                        cpuType:(cpu_type_t)cpuType
+{
+  TestableExecutionInfo *info = [[[TestableExecutionInfo alloc] init] autorelease];
+  info.testable = testable;
+  [self populateInfo:info
+         forTestable:testable
+       buildSettings:buildSettings
+             cpuType:cpuType];
+  return info;
+}
+
++ (void)populateInfo:(TestableExecutionInfo *)info
+         forTestable:(Testable *)testable
+       buildSettings:(NSDictionary *)buildSettings
+             cpuType:(cpu_type_t)cpuType
+{
   NSString *otestQueryError = nil;
   NSArray *testCases = [[self class] queryTestCasesWithBuildSettings:info.buildSettings
                                                              cpuType:cpuType
@@ -75,8 +99,6 @@
     info.expandedArguments = testable.arguments;
     info.expandedEnvironment = testable.environment;
   }
-
-  return info;
 }
 
 + (NSDictionary *)testableBuildSettingsForProject:(NSString *)projectPath

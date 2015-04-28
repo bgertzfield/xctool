@@ -72,4 +72,12 @@
             xcodebuildArguments:(NSArray *)xcodebuildArguments
                         testSDK:(NSString *)testSDK
                         cpuType:(cpu_type_t)cpuType;
+
+/**
+ * @return A populated TestableExecutionInfo instance.
+ */
++ (instancetype)infoForTestable:(Testable *)testable
+                  buildSettings:(NSDictionary *)buildSettings
+                        cpuType:(cpu_type_t)cpuType;
+
 @end
