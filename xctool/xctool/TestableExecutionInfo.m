@@ -28,56 +28,12 @@
 @implementation TestableExecutionInfo
 
 + (instancetype)infoForTestable:(Testable *)testable
-               xcodeSubjectInfo:(XcodeSubjectInfo *)xcodeSubjectInfo
-            xcodebuildArguments:(NSArray *)xcodebuildArguments
-                        testSDK:(NSString *)testSDK
-                        cpuType:(cpu_type_t)cpuType
-{
-  TestableExecutionInfo *info = [[[TestableExecutionInfo alloc] init] autorelease];
-  info.testable = testable;
-
-  NSString *buildSettingsError = nil;
-  NSDictionary *buildSettings = [[self class] testableBuildSettingsForProject:testable.projectPath
-                                                                       target:testable.target
-                                                                      objRoot:xcodeSubjectInfo.objRoot
-                                                                      symRoot:xcodeSubjectInfo.symRoot
-                                                            sharedPrecompsDir:xcodeSubjectInfo.sharedPrecompsDir
-                                                         targetedDeviceFamily:xcodeSubjectInfo.targetedDeviceFamily
-                                                               xcodeArguments:xcodebuildArguments
-                                                                      testSDK:testSDK
-                                                                        error:&buildSettingsError];
-
-  if (buildSettings) {
-    info.buildSettings = buildSettings;
-    [self populateInfo:info
-           forTestable:testable
-         buildSettings:buildSettings
-               cpuType:cpuType];
-  } else {
-    info.buildSettingsError = buildSettingsError;
-  }
-
-  return info;
-}
-
-+ (instancetype)infoForTestable:(Testable *)testable
                   buildSettings:(NSDictionary *)buildSettings
                         cpuType:(cpu_type_t)cpuType
 {
   TestableExecutionInfo *info = [[[TestableExecutionInfo alloc] init] autorelease];
   info.testable = testable;
-  [self populateInfo:info
-         forTestable:testable
-       buildSettings:buildSettings
-             cpuType:cpuType];
-  return info;
-}
 
-+ (void)populateInfo:(TestableExecutionInfo *)info
-         forTestable:(Testable *)testable
-       buildSettings:(NSDictionary *)buildSettings
-             cpuType:(cpu_type_t)cpuType
-{
   NSString *otestQueryError = nil;
   NSArray *testCases = [[self class] queryTestCasesWithBuildSettings:info.buildSettings
                                                              cpuType:cpuType
@@ -99,6 +55,8 @@
     info.expandedArguments = testable.arguments;
     info.expandedEnvironment = testable.environment;
   }
+
+  return info;
 }
 
 + (NSDictionary *)testableBuildSettingsForProject:(NSString *)projectPath

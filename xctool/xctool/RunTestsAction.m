@@ -499,12 +499,26 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
   for (Testable *testable in testables) {
     dispatch_semaphore_wait(queueLimiter, DISPATCH_TIME_FOREVER);
     dispatch_group_async(group, q, ^{
-      TestableExecutionInfo *info = [TestableExecutionInfo infoForTestable:testable
-                                                          xcodeSubjectInfo:xcodeSubjectInfo
-                                                       xcodebuildArguments:xcodebuildArguments
-                                                                   testSDK:_testSDK
-                                                                   cpuType:_cpuType];
-
+      NSString *buildSettingsError;
+      NSDictionary *testableBuildSettings = [TestableExecutionInfo
+          testableBuildSettingsForProject:testable.projectPath
+                                   target:testable.target
+                                  objRoot:xcodeSubjectInfo.objRoot
+                                  symRoot:xcodeSubjectInfo.symRoot
+                        sharedPrecompsDir:xcodeSubjectInfo.sharedPrecompsDir
+                     targetedDeviceFamily:xcodeSubjectInfo.targetedDeviceFamily
+                           xcodeArguments:xcodebuildArguments
+                                  testSDK:_testSDK
+                                    error:&buildSettingsError];
+      TestableExecutionInfo *info;
+      if (testableBuildSettings) {
+        info = [TestableExecutionInfo infoForTestable:testable
+                                        buildSettings:testableBuildSettings
+                                              cpuType:_cpuType];
+      } else {
+        info = [[[TestableExecutionInfo alloc] init] autorelease];
+        info.buildSettingsError = buildSettingsError;
+      }
       @synchronized (self) {
         [testableExecutionInfos addObject:info];
       }
