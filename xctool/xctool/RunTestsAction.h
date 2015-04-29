@@ -67,6 +67,9 @@ typedef enum {
 @property (nonatomic, retain) NSMutableArray *onlyList;
 @property (nonatomic, copy) NSString *deviceName;
 @property (nonatomic, copy) NSString *OSVersion;
+@property (nonatomic, copy) NSString *testablesJSON;
+@property (nonatomic, copy) NSString *defaultTestableBuildSettingsJSON;
+@property (nonatomic, copy) NSString *testableBuildSettingsJSON;
 
 - (void)setLogicTestBucketSize:(NSString *)str;
 - (void)setAppTestBucketSize:(NSString *)str;
@@ -74,4 +77,3 @@ typedef enum {
 - (void)setTestTimeout:(NSString *)str;
 
 @end
-

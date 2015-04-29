@@ -33,6 +33,7 @@
 {
   TestableExecutionInfo *info = [[[TestableExecutionInfo alloc] init] autorelease];
   info.testable = testable;
+  info.buildSettings = buildSettings;
 
   NSString *otestQueryError = nil;
   NSArray *testCases = [[self class] queryTestCasesWithBuildSettings:info.buildSettings

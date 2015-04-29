@@ -31,6 +31,97 @@
 #import "XcodeBuildSettings.h"
 #import "XcodeSubjectInfo.h"
 
+static Testable *DecodeRawTestable(NSDictionary *rawTestable, NSError **errorOut) {
+  Testable *result = [[[Testable alloc] init] autorelease];
+  // XXX add error handling
+  result.projectPath = rawTestable[@"projectPath"];
+  result.target = rawTestable[@"target"];
+  result.targetID = rawTestable[@"targetID"];
+  result.executable = rawTestable[@"executable"];
+  result.buildForRunning = [rawTestable[@"buildForRunning"] boolValue];
+  result.buildForTesting = [rawTestable[@"buildForTesting"] boolValue];
+  result.buildForAnalyzing = [rawTestable[@"buildForAnalyzing"] boolValue];
+  result.senTestList = rawTestable[@"senTestList"];
+  result.senTestInvertScope = [rawTestable[@"senTestInvertScope"] boolValue];
+  result.skipped = [rawTestable[@"skipped"] boolValue];
+  result.arguments = rawTestable[@"arguments"];
+  result.environment = rawTestable[@"environment"];
+  result.macroExpansionProjectPath = rawTestable[@"macroExpansionProjectPath"];
+  result.macroExpansionTarget = rawTestable[@"macroExpansionTarget"];
+  return result;
+}
+
+static NSDictionary *DecodeDictionaryAndReportError(NSString *JSON, NSArray *reporters, NSString *failureFormat) {
+  if (JSON) {
+    NSError *jsonDecodeError = nil;
+    NSDictionary *result = [NSJSONSerialization JSONObjectWithData:[JSON dataUsingEncoding:NSUTF8StringEncoding]
+                                                           options:0
+                                                             error:&jsonDecodeError];
+    if (!result) {
+      ReportStatusMessage(
+        reporters,
+        REPORTER_MESSAGE_ERROR,
+        failureFormat,
+        JSON,
+        jsonDecodeError);
+    }
+
+    return result;
+  } else {
+    return @{};
+  }
+}
+
+static BOOL DecodeTestableBuildSettings(
+  NSString *defaultTestableBuildSettingsJSON,
+  NSString *testableBuildSettingsJSON,
+  NSArray *reporters,
+  NSDictionary **defaultTestableBuildSettings,
+  NSDictionary **testableBuildSettings) {
+  *defaultTestableBuildSettings = DecodeDictionaryAndReportError(defaultTestableBuildSettingsJSON, reporters, @"Could not decode defaultTestableBuildSettings JSON: [%@]: %@");
+  if (!*defaultTestableBuildSettings) {
+    return NO;
+  }
+
+  *testableBuildSettings = DecodeDictionaryAndReportError(testableBuildSettingsJSON, reporters, @"Could not decode testableBuildSettings JSON: [%@]: %@");
+  if (!*testableBuildSettings) {
+    return NO;
+  }
+
+  return YES;
+}
+
+static NSArray *AllTestables(
+  NSString *testablesJSON,
+  XcodeSubjectInfo *xcodeSubjectInfo,
+  NSError **errorOut) {
+  if (testablesJSON) {
+    NSArray *rawTestables =
+      [NSJSONSerialization JSONObjectWithData:[testablesJSON dataUsingEncoding:NSUTF8StringEncoding]
+                                      options:0
+                                        error:errorOut];
+    if (!rawTestables) {
+      return nil;
+    }
+
+    NSMutableArray *decodedTestables = [NSMutableArray arrayWithCapacity:rawTestables.count];
+    for (NSDictionary *rawTestable in rawTestables) {
+      Testable *testable = DecodeRawTestable(rawTestable, errorOut);
+      if (!testable) {
+        return nil;
+      }
+      [decodedTestables addObject:testable];
+    }
+    return decodedTestables;
+  } else if (xcodeSubjectInfo.testables) {
+    return xcodeSubjectInfo.testables;
+  } else {
+    // XXX
+    //*errorOut = [NSError errorWithDomain:@"xctool" code:100 userInfo:nil]
+    return nil;
+  }
+}
+
 /// Break up an array into chunks of specified size
 static NSArray *chunkifyArray(NSArray *array, NSUInteger chunkSize) {
   if (array.count == 0) {
@@ -109,6 +200,21 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
                      description:@"SPEC is TARGET[:Class/case[,Class2/case2]]"
                        paramName:@"SPEC"
                            mapTo:@selector(addOnly:)],
+    [Action actionOptionWithName:@"testablesJSON"
+                         aliases:nil
+                     description:@"JSON array of dictionaries of Testable objects"
+                       paramName:@"JSON"
+                           mapTo:@selector(setTestablesJSON:)],
+    [Action actionOptionWithName:@"defaultTestableBuildSettingsJSON"
+                         aliases:nil
+                     description:@"JSON dictionary of default Xcode build settings for all tests"
+                       paramName:@"JSON"
+                           mapTo:@selector(setDefaultTestableBuildSettingsJSON:)],
+    [Action actionOptionWithName:@"testableBuildSettingsJSON"
+                         aliases:nil
+                     description:@"JSON dictionary of test target names to Xcode build settings dictionary"
+                       paramName:@"JSON"
+                           mapTo:@selector(setTestableBuildSettingsJSON:)],
     [Action actionOptionWithName:@"freshSimulator"
                          aliases:nil
                      description:
@@ -284,7 +390,10 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
   if (self.onlyList.count == 0) {
     // Use whatever we found in the scheme, except for skipped tests.
     NSMutableArray *unskipped = [NSMutableArray array];
-    for (Testable *testable in xcodeSubjectInfo.testables) {
+    NSError *error = nil;
+    NSArray *allTestables = AllTestables(_testablesJSON, xcodeSubjectInfo, &error);
+
+    for (Testable *testable in allTestables) {
       if (!testable.skipped) {
         [unskipped addObject:testable];
       }
@@ -492,6 +601,16 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
                                                                   xcodeSubjectInfo:xcodeSubjectInfo];
 
   NSMutableArray *testableExecutionInfos = [NSMutableArray array];
+  NSDictionary *defaultTestableBuildSettings;
+  NSDictionary *perTargetTestableBuildSettings;
+  if (!DecodeTestableBuildSettings(
+        _defaultTestableBuildSettingsJSON,
+        _testableBuildSettingsJSON,
+        options.reporters,
+        &defaultTestableBuildSettings,
+        &perTargetTestableBuildSettings)) {
+    return NO;
+  }
 
   ReportStatusMessageBegin(options.reporters, REPORTER_MESSAGE_INFO,
                            @"Collecting info for testables...");
@@ -499,17 +618,25 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
   for (Testable *testable in testables) {
     dispatch_semaphore_wait(queueLimiter, DISPATCH_TIME_FOREVER);
     dispatch_group_async(group, q, ^{
-      NSString *buildSettingsError;
-      NSDictionary *testableBuildSettings = [TestableExecutionInfo
-          testableBuildSettingsForProject:testable.projectPath
-                                   target:testable.target
-                                  objRoot:xcodeSubjectInfo.objRoot
-                                  symRoot:xcodeSubjectInfo.symRoot
-                        sharedPrecompsDir:xcodeSubjectInfo.sharedPrecompsDir
-                     targetedDeviceFamily:xcodeSubjectInfo.targetedDeviceFamily
-                           xcodeArguments:xcodebuildArguments
-                                  testSDK:_testSDK
-                                    error:&buildSettingsError];
+
+      NSDictionary *testableBuildSettings = nil;
+      NSString *buildSettingsError = nil;
+      if (options.withoutXcode) {
+        NSMutableDictionary *settings = [defaultTestableBuildSettings mutableCopy];
+        [settings addEntriesFromDictionary:[perTargetTestableBuildSettings objectForKey:testable.target]];
+        testableBuildSettings = settings;
+      } else {
+        testableBuildSettings = [TestableExecutionInfo
+            testableBuildSettingsForProject:testable.projectPath
+                                     target:testable.target
+                                    objRoot:xcodeSubjectInfo.objRoot
+                                    symRoot:xcodeSubjectInfo.symRoot
+                          sharedPrecompsDir:xcodeSubjectInfo.sharedPrecompsDir
+                       targetedDeviceFamily:xcodeSubjectInfo.targetedDeviceFamily
+                             xcodeArguments:xcodebuildArguments
+                                    testSDK:_testSDK
+                                      error:&buildSettingsError];
+      }
       TestableExecutionInfo *info;
       if (testableBuildSettings) {
         info = [TestableExecutionInfo infoForTestable:testable
