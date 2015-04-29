@@ -331,7 +331,8 @@
 
   if (self.withoutXcode) {
     *xcodeSubjectInfoOut = [[[XcodeSubjectInfo alloc] init] autorelease];
-    return YES;
+    return [self _validateActionsWithSubjectInfo:*xcodeSubjectInfoOut
+                                    errorMessage:errorMessage];
   } else if (self.workspace == nil && self.project == nil && self.findTarget == nil) {
     NSString *defaultProject = [self findDefaultProjectErrorMessage:errorMessage];
     if (defaultProject == nil) {
@@ -585,6 +586,12 @@
   [xcodeSubjectInfo loadSubjectInfo];
   ReportStatusMessageEnd(_reporters, REPORTER_MESSAGE_INFO, @"Loading settings for scheme '%@' ...", _scheme);
 
+  return [self _validateActionsWithSubjectInfo:xcodeSubjectInfo
+                                  errorMessage:errorMessage];
+}
+
+- (BOOL)_validateActionsWithSubjectInfo:(XcodeSubjectInfo *)xcodeSubjectInfo
+                           errorMessage:(NSString **)errorMessage {
   for (Action *action in self.actions) {
     BOOL valid = [action validateWithOptions:self
                             xcodeSubjectInfo:xcodeSubjectInfo

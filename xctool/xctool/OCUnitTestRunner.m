@@ -164,7 +164,7 @@
   }
 
   [testSuiteState release];
-  
+
   return allTestsPassed;
 }
 
@@ -252,7 +252,7 @@
                       // the test.
                       [[NSProcessInfo processInfo] environment],
                       // Any special environment vars set in the scheme.
-                      _environment,
+                      _environment ?: @{},
                       // Internal environment that should be passed to xctool libs
                       internalEnvironment,
                       // Whatever values we need to make the test run at all for
