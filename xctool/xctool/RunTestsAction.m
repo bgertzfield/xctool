@@ -107,8 +107,10 @@ static void PopulateTestableBuildSettings(
     // XXX assert this actually is a full path on disk
     NSString *logicTestDirName = [logicTest stringByDeletingLastPathComponent];
     NSString *logicTestFileName = [logicTest lastPathComponent];
-    newPerTargetTestableBuildSettings[logicTest][Xcode_BUILT_PRODUCTS_DIR] = logicTestDirName;
-    newPerTargetTestableBuildSettings[logicTest][Xcode_FULL_PRODUCT_NAME] = logicTestFileName;
+    newPerTargetTestableBuildSettings[logicTest] = @{
+      Xcode_BUILT_PRODUCTS_DIR: logicTestDirName,
+      Xcode_FULL_PRODUCT_NAME: logicTestFileName,
+    };
   }
 
   for (NSString *appTest in appTests) {
@@ -116,9 +118,11 @@ static void PopulateTestableBuildSettings(
     NSString *appTestDirName = [appTest stringByDeletingLastPathComponent];
     NSString *appTestFileName = [appTest lastPathComponent];
     NSString *testHostPath = appTests[appTest];
-    newPerTargetTestableBuildSettings[appTest][Xcode_BUILT_PRODUCTS_DIR] = appTestDirName;
-    newPerTargetTestableBuildSettings[appTest][Xcode_FULL_PRODUCT_NAME] = appTestFileName;
-    newPerTargetTestableBuildSettings[appTest][Xcode_TEST_HOST] = testHostPath;
+    newPerTargetTestableBuildSettings[appTest] = @{
+      Xcode_BUILT_PRODUCTS_DIR: appTestDirName,
+      Xcode_FULL_PRODUCT_NAME: appTestFileName,
+      Xcode_TEST_HOST: testHostPath,
+    };
   }
 
   *defaultTestableBuildSettings = newDefaultTestableBuildSettings;

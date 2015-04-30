@@ -354,6 +354,14 @@
     return (BOOL)(exists && isDirectory);
   };
 
+  if (![self _validateSdkWithErrorMessage:errorMessage]) {
+    return NO;
+  }
+
+  if (![self _validateDestinationWithErrorMessage:errorMessage]) {
+    return NO;
+  }
+
   if (_logicTests.count || _appTests.count) {
     *xcodeSubjectInfoOut = [[XcodeSubjectInfo alloc] init];
     return [self _validateActionsWithSubjectInfo:*xcodeSubjectInfoOut
@@ -522,6 +530,31 @@
     return NO;
   }
 
+  XcodeSubjectInfo *xcodeSubjectInfo = [[XcodeSubjectInfo alloc] init];
+  xcodeSubjectInfo.subjectWorkspace = _workspace;
+  xcodeSubjectInfo.subjectProject = _project;
+  xcodeSubjectInfo.subjectScheme = _scheme;
+
+  if (xcodeSubjectInfoOut) {
+    *xcodeSubjectInfoOut = xcodeSubjectInfo;
+  }
+
+  // We can pass nil for the scheme action since we don't care to use the
+  // scheme's specific configuration.
+  NSArray *commonXcodeBuildArguments = [self commonXcodeBuildArgumentsForSchemeAction:nil
+                                                                     xcodeSubjectInfo:nil];
+  xcodeSubjectInfo.subjectXcodeBuildArguments =
+    [[self xcodeBuildArgumentsForSubject] arrayByAddingObjectsFromArray:commonXcodeBuildArguments];
+
+  ReportStatusMessageBegin(_reporters, REPORTER_MESSAGE_INFO, @"Loading settings for scheme '%@' ...", _scheme);
+  [xcodeSubjectInfo loadSubjectInfo];
+  ReportStatusMessageEnd(_reporters, REPORTER_MESSAGE_INFO, @"Loading settings for scheme '%@' ...", _scheme);
+
+  return [self _validateActionsWithSubjectInfo:xcodeSubjectInfo
+                                  errorMessage:errorMessage];
+}
+
+- (BOOL)_validateSdkWithErrorMessage:(NSString **)errorMessage {
   NSDictionary *sdksAndAliases = nil;
   if (_sdk) {
     NSDictionary *sdkInfo = GetAvailableSDKsInfo();
@@ -553,7 +586,10 @@
       _buildSettings[Xcode_PLATFORM_NAME] = @"iphonesimulator";
     }
   }
+  return YES;
+}
 
+- (BOOL)_validateDestinationWithErrorMessage:(NSString **)errorMessage {
   if (_destination) {
     NSDictionary *destInfo = ParseDestinationString(_destination, errorMessage);
 
@@ -593,28 +629,7 @@
     }
   }
 
-  XcodeSubjectInfo *xcodeSubjectInfo = [[XcodeSubjectInfo alloc] init];
-  xcodeSubjectInfo.subjectWorkspace = _workspace;
-  xcodeSubjectInfo.subjectProject = _project;
-  xcodeSubjectInfo.subjectScheme = _scheme;
-
-  if (xcodeSubjectInfoOut) {
-    *xcodeSubjectInfoOut = xcodeSubjectInfo;
-  }
-
-  // We can pass nil for the scheme action since we don't care to use the
-  // scheme's specific configuration.
-  NSArray *commonXcodeBuildArguments = [self commonXcodeBuildArgumentsForSchemeAction:nil
-                                                                     xcodeSubjectInfo:nil];
-  xcodeSubjectInfo.subjectXcodeBuildArguments =
-    [[self xcodeBuildArgumentsForSubject] arrayByAddingObjectsFromArray:commonXcodeBuildArguments];
-
-  ReportStatusMessageBegin(_reporters, REPORTER_MESSAGE_INFO, @"Loading settings for scheme '%@' ...", _scheme);
-  [xcodeSubjectInfo loadSubjectInfo];
-  ReportStatusMessageEnd(_reporters, REPORTER_MESSAGE_INFO, @"Loading settings for scheme '%@' ...", _scheme);
-
-  return [self _validateActionsWithSubjectInfo:xcodeSubjectInfo
-                                  errorMessage:errorMessage];
+  return YES;
 }
 
 - (BOOL)_validateActionsWithSubjectInfo:(XcodeSubjectInfo *)xcodeSubjectInfo
