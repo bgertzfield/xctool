@@ -31,6 +31,104 @@
 #import "XcodeBuildSettings.h"
 #import "XcodeSubjectInfo.h"
 
+
+static NSArray *AllTestables(
+  NSArray *logicTests,
+  NSDictionary *appTests,
+  XcodeSubjectInfo *xcodeSubjectInfo) {
+
+  if (logicTests.count || appTests.count) {
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSString *logicTestBundle in logicTests) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = logicTestBundle;
+
+      // Will be overridden later if -only is passed
+      testable.senTestList = @"All";
+      [result addObject:testable];
+    }
+
+    for (NSString *appTestBundle in appTests) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = appTestBundle;
+
+      testable.senTestList = @"All";
+      [result addObject:testable];
+    }
+    return result;
+  } else if (xcodeSubjectInfo.testables) {
+    return xcodeSubjectInfo.testables;
+  } else {
+    return nil;
+  }
+}
+
+static Testable *MatchingTestable(
+  NSString *target,
+  NSArray *logicTests,
+  NSDictionary *appTests,
+  XcodeSubjectInfo *xcodeSubjectInfo) {
+
+  for (NSString *logicTestBundle in logicTests) {
+    if ([target isEqualToString:logicTestBundle]) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = logicTestBundle;
+      return testable;
+    }
+  }
+
+  for (NSString *appTestBundle in appTests) {
+    if ([target isEqualToString:appTestBundle]) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = appTestBundle;
+      return testable;
+    }
+  }
+
+  return [xcodeSubjectInfo testableWithTarget:target];
+}
+
+static void PopulateTestableBuildSettings(
+  NSDictionary **defaultTestableBuildSettings,
+  NSDictionary **perTargetTestableBuildSettings,
+  NSArray *logicTests,
+  NSDictionary *appTests,
+  NSString *sdkName,
+  NSString *sdkPath) {
+  NSMutableDictionary *newDefaultTestableBuildSettings = [NSMutableDictionary dictionary];
+  NSMutableDictionary *newPerTargetTestableBuildSettings = [NSMutableDictionary dictionary];
+
+  newDefaultTestableBuildSettings[Xcode_SDKROOT] = sdkPath;
+  newDefaultTestableBuildSettings[Xcode_SDK_NAME] = sdkName;
+  // XXX figure out when to switch to @"2" for iPad
+  newDefaultTestableBuildSettings[Xcode_TARGETED_DEVICE_FAMILY] = @"1";
+
+  for (NSString *logicTest in logicTests) {
+    // XXX assert this actually is a full path on disk
+    NSString *logicTestDirName = [logicTest stringByDeletingLastPathComponent];
+    NSString *logicTestFileName = [logicTest lastPathComponent];
+    newPerTargetTestableBuildSettings[logicTest] = @{
+      Xcode_BUILT_PRODUCTS_DIR: logicTestDirName,
+      Xcode_FULL_PRODUCT_NAME: logicTestFileName,
+    };
+  }
+
+  for (NSString *appTest in appTests) {
+    // XXX assert this actually is a full path on disk
+    NSString *appTestDirName = [appTest stringByDeletingLastPathComponent];
+    NSString *appTestFileName = [appTest lastPathComponent];
+    NSString *testHostPath = appTests[appTest];
+    newPerTargetTestableBuildSettings[appTest] = @{
+      Xcode_BUILT_PRODUCTS_DIR: appTestDirName,
+      Xcode_FULL_PRODUCT_NAME: appTestFileName,
+      Xcode_TEST_HOST: testHostPath,
+    };
+  }
+
+  *defaultTestableBuildSettings = newDefaultTestableBuildSettings;
+  *perTargetTestableBuildSettings = newPerTargetTestableBuildSettings;
+}
+
 /// Break up an array into chunks of specified size
 static NSArray *chunkifyArray(NSArray *array, NSUInteger chunkSize) {
   if (array.count == 0) {
@@ -270,7 +368,7 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
   }
 
   for (NSDictionary *only in [self onlyListAsTargetsAndSenTestList]) {
-    if ([xcodeSubjectInfo testableWithTarget:only[@"target"]] == nil) {
+    if (MatchingTestable(only[@"target"], options.logicTests, options.appTests, xcodeSubjectInfo) == nil) {
       *errorMessage = [NSString stringWithFormat:@"run-tests: '%@' is not a testing target in this scheme.", only[@"target"]];
       return NO;
     }
@@ -286,7 +384,9 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
   if (_onlyList.count == 0) {
     // Use whatever we found in the scheme, except for skipped tests.
     NSMutableArray *unskipped = [NSMutableArray array];
-    for (Testable *testable in xcodeSubjectInfo.testables) {
+    NSArray *allTestables = AllTestables(options.logicTests, options.appTests, xcodeSubjectInfo);
+
+    for (Testable *testable in allTestables) {
       if (!testable.skipped) {
         [unskipped addObject:testable];
       }
@@ -296,7 +396,7 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
     // Munge the list of testables from the scheme to only include those given.
     NSMutableArray *newTestables = [NSMutableArray array];
     for (NSDictionary *only in [self onlyListAsTargetsAndSenTestList]) {
-      Testable *matchingTestable = [xcodeSubjectInfo testableWithTarget:only[@"target"]];
+      Testable *matchingTestable = MatchingTestable(only[@"target"], options.logicTests, options.appTests, xcodeSubjectInfo);
 
       if (matchingTestable) {
         Testable *newTestable = [matchingTestable copy];
@@ -494,6 +594,15 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
                                                                   xcodeSubjectInfo:xcodeSubjectInfo];
 
   NSMutableArray *testableExecutionInfos = [NSMutableArray array];
+  NSDictionary *defaultTestableBuildSettings;
+  NSDictionary *perTargetTestableBuildSettings;
+  PopulateTestableBuildSettings(
+        &defaultTestableBuildSettings,
+        &perTargetTestableBuildSettings,
+        options.logicTests,
+        options.appTests,
+        options.sdk,
+        options.sdkPath);
 
   ReportStatusMessageBegin(options.reporters, REPORTER_MESSAGE_INFO,
                            @"Collecting info for testables...");
@@ -501,12 +610,35 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
   for (Testable *testable in testables) {
     dispatch_semaphore_wait(queueLimiter, DISPATCH_TIME_FOREVER);
     dispatch_group_async(group, q, ^{
-      TestableExecutionInfo *info = [TestableExecutionInfo infoForTestable:testable
-                                                          xcodeSubjectInfo:xcodeSubjectInfo
-                                                       xcodebuildArguments:xcodebuildArguments
-                                                                   testSDK:_testSDK
-                                                                   cpuType:_cpuType];
 
+      NSDictionary *testableBuildSettings = nil;
+      NSString *buildSettingsError = nil;
+      // XXX cheesy
+      if (options.logicTests.count || options.appTests.count) {
+        NSMutableDictionary *settings = [defaultTestableBuildSettings mutableCopy];
+        [settings addEntriesFromDictionary:[perTargetTestableBuildSettings objectForKey:testable.target]];
+        testableBuildSettings = settings;
+      } else {
+        testableBuildSettings = [TestableExecutionInfo
+            testableBuildSettingsForProject:testable.projectPath
+                                     target:testable.target
+                                    objRoot:xcodeSubjectInfo.objRoot
+                                    symRoot:xcodeSubjectInfo.symRoot
+                          sharedPrecompsDir:xcodeSubjectInfo.sharedPrecompsDir
+                       targetedDeviceFamily:xcodeSubjectInfo.targetedDeviceFamily
+                             xcodeArguments:xcodebuildArguments
+                                    testSDK:_testSDK
+                                      error:&buildSettingsError];
+      }
+      TestableExecutionInfo *info;
+      if (testableBuildSettings) {
+        info = [TestableExecutionInfo infoForTestable:testable
+                                        buildSettings:testableBuildSettings
+                                              cpuType:_cpuType];
+      } else {
+        info = [[TestableExecutionInfo alloc] init];
+        info.buildSettingsError = buildSettingsError;
+      }
       @synchronized (self) {
         [testableExecutionInfos addObject:info];
       }
