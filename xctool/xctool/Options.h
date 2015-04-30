@@ -32,6 +32,7 @@
 @property (nonatomic, copy) NSString *scheme;
 @property (nonatomic, copy) NSString *configuration;
 @property (nonatomic, copy) NSString *sdk;
+@property (nonatomic, copy) NSString *sdkPath;
 @property (nonatomic, copy) NSString *arch;
 @property (nonatomic, copy) NSString *destination;
 @property (nonatomic, copy) NSString *destinationTimeout;
@@ -58,7 +59,8 @@
 
 @property (nonatomic, strong) NSMutableArray *actions;
 
-@property (nonatomic, assign) BOOL withoutXcode;
+@property (nonatomic, strong) NSMutableArray *logicTests;
+@property (nonatomic, strong) NSMutableDictionary *appTests;
 
 /**
  Returns the command-line arguments that were passed to xctool, and which should

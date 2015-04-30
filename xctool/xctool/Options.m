@@ -182,10 +182,21 @@
                         description:@"Set the user default 'default' to 'value'"
                           paramName:@"-DEFAULT=VALUE"
                               mapTo:@selector(addUserDefault:)],
-    [Action actionOptionWithName:@"withoutXcode"
+    [Action actionOptionWithName:@"logicTest"
                          aliases:nil
-                     description:@"Build without detecting settings from Xcode"
-                         setFlag:@selector(setWithoutXcode:)],
+                     description:@"Add a path to a logic test bundle to run"
+                       paramName:@"BUNDLE"
+                           mapTo:@selector(addLogicTest:)],
+    [Action actionOptionWithMatcher:^(NSString *argument){
+      // Anything that looks like -DEFAULT=VALUE should get passed to xcodebuild
+      // as a command-line user default setting.  These let you override values
+      // in NSUserDefaults.
+      return
+        (BOOL)(([argument rangeOfString:@":"].length > 0));
+    }
+                        description:@"Add a path to an app test bundle with the path to its host app"
+                          paramName:@"BUNDLE:HOST_APP"
+                              mapTo:@selector(addAppTest:)],
     ];
 }
 
@@ -198,6 +209,8 @@
     _buildSettings = [[NSMutableDictionary alloc] init];
     _userDefaults = [[NSMutableDictionary alloc] init];
     _actions = [[NSMutableArray alloc] init];
+    _logicTests = [[NSMutableArray alloc] init];
+    _appTests = [[NSMutableDictionary alloc] init];
   }
   return self;
 }
@@ -230,6 +243,24 @@
     NSString *key = [argument substringToIndex:eqRange.location];
     NSString *val = [argument substringFromIndex:eqRange.location + 1];
     _userDefaults[key] = val;
+  }
+}
+
+- (void)addLogicTest:(NSString *)argument
+{
+  [_logicTests addObject:argument];
+}
+
+- (void)addAppTest:(NSString *)argument
+{
+  NSRange colonRange = [argument rangeOfString:@":"];
+
+  if (colonRange.location != NSNotFound && colonRange.location > 0) {
+    NSString *testBundle = [argument substringToIndex:colonRange.location];
+    NSString *hostApp = [argument substringFromIndex:colonRange.location + 1];
+    _appTests[testBundle] = hostApp;
+  } else {
+    NSAssert(NO, @"Parameter %@ must be in the form testbundle:hostapp", argument);
   }
 }
 
@@ -323,7 +354,7 @@
     return (BOOL)(exists && isDirectory);
   };
 
-  if (_withoutXcode) {
+  if (_logicTests.count || _appTests.count) {
     *xcodeSubjectInfoOut = [[XcodeSubjectInfo alloc] init];
     return [self _validateActionsWithSubjectInfo:*xcodeSubjectInfoOut
                                     errorMessage:errorMessage];
@@ -424,7 +455,7 @@
     *errorMessage = [NSString stringWithFormat:@"Project must end in .xcodeproj: %@", _project];
     return NO;
   }
-  
+
   if (_resultBundlePath) {
     BOOL isDirectory = NO;
     BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:_resultBundlePath isDirectory:&isDirectory];
@@ -493,7 +524,8 @@
 
   NSDictionary *sdksAndAliases = nil;
   if (_sdk) {
-    sdksAndAliases = GetAvailableSDKsAndAliases();
+    NSDictionary *sdkInfo = GetAvailableSDKsInfo();
+    sdksAndAliases = GetAvailableSDKsAndAliasesWithSDKInfo(sdkInfo);
 
     // Is this an available SDK?
     if (!sdksAndAliases[_sdk]) {
@@ -507,7 +539,8 @@
     // Map SDK param to actual SDK name.  This allows for aliases like 'iphoneos' to map
     // to 'iphoneos6.1'.
     _sdk = sdksAndAliases[_sdk];
-    
+    _sdkPath = sdkInfo[_sdk][@"Path"];
+
     // Xcode 5's xcodebuild has a bug where it won't build targets for the
     // iphonesimulator SDK.  It fails with...
     //
@@ -648,7 +681,7 @@
   if (_resultBundlePath) {
     [arguments addObjectsFromArray:@[@"-resultBundlePath", _resultBundlePath]];
   }
-    
+
   [_buildSettings enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop){
     [arguments addObject:[NSString stringWithFormat:@"%@=%@", key, obj]];
   }];

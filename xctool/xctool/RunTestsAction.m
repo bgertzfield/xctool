@@ -31,95 +31,98 @@
 #import "XcodeBuildSettings.h"
 #import "XcodeSubjectInfo.h"
 
-static Testable *DecodeRawTestable(NSDictionary *rawTestable, NSError **errorOut) {
-  Testable *result = [[Testable alloc] init];
-  // XXX add error handling
-  result.projectPath = rawTestable[@"projectPath"];
-  result.target = rawTestable[@"target"];
-  result.targetID = rawTestable[@"targetID"];
-  result.executable = rawTestable[@"executable"];
-  result.buildForRunning = [rawTestable[@"buildForRunning"] boolValue];
-  result.buildForTesting = [rawTestable[@"buildForTesting"] boolValue];
-  result.buildForAnalyzing = [rawTestable[@"buildForAnalyzing"] boolValue];
-  result.senTestList = rawTestable[@"senTestList"];
-  result.senTestInvertScope = [rawTestable[@"senTestInvertScope"] boolValue];
-  result.skipped = [rawTestable[@"skipped"] boolValue];
-  result.arguments = rawTestable[@"arguments"];
-  result.environment = rawTestable[@"environment"];
-  result.macroExpansionProjectPath = rawTestable[@"macroExpansionProjectPath"];
-  result.macroExpansionTarget = rawTestable[@"macroExpansionTarget"];
-  return result;
-}
-
-static NSDictionary *DecodeDictionaryAndReportError(NSString *JSON, NSArray *reporters, NSString *failureFormat) {
-  if (JSON) {
-    NSError *jsonDecodeError = nil;
-    NSDictionary *result = [NSJSONSerialization JSONObjectWithData:[JSON dataUsingEncoding:NSUTF8StringEncoding]
-                                                           options:0
-                                                             error:&jsonDecodeError];
-    if (!result) {
-      ReportStatusMessage(
-        reporters,
-        REPORTER_MESSAGE_ERROR,
-        failureFormat,
-        JSON,
-        jsonDecodeError);
-    }
-
-    return result;
-  } else {
-    return @{};
-  }
-}
-
-static BOOL DecodeTestableBuildSettings(
-  NSString *defaultTestableBuildSettingsJSON,
-  NSString *testableBuildSettingsJSON,
-  NSArray *reporters,
-  NSDictionary **defaultTestableBuildSettings,
-  NSDictionary **testableBuildSettings) {
-  *defaultTestableBuildSettings = DecodeDictionaryAndReportError(defaultTestableBuildSettingsJSON, reporters, @"Could not decode defaultTestableBuildSettings JSON: [%@]: %@");
-  if (!*defaultTestableBuildSettings) {
-    return NO;
-  }
-
-  *testableBuildSettings = DecodeDictionaryAndReportError(testableBuildSettingsJSON, reporters, @"Could not decode testableBuildSettings JSON: [%@]: %@");
-  if (!*testableBuildSettings) {
-    return NO;
-  }
-
-  return YES;
-}
 
 static NSArray *AllTestables(
-  NSString *testablesJSON,
-  XcodeSubjectInfo *xcodeSubjectInfo,
-  NSError **errorOut) {
-  if (testablesJSON) {
-    NSArray *rawTestables =
-      [NSJSONSerialization JSONObjectWithData:[testablesJSON dataUsingEncoding:NSUTF8StringEncoding]
-                                      options:0
-                                        error:errorOut];
-    if (!rawTestables) {
-      return nil;
+  NSArray *logicTests,
+  NSDictionary *appTests,
+  XcodeSubjectInfo *xcodeSubjectInfo) {
+
+  if (logicTests.count || appTests.count) {
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSString *logicTestBundle in logicTests) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = logicTestBundle;
+
+      // Will be overridden later if -only is passed
+      testable.senTestList = @"All";
+      [result addObject:testable];
     }
 
-    NSMutableArray *decodedTestables = [NSMutableArray arrayWithCapacity:rawTestables.count];
-    for (NSDictionary *rawTestable in rawTestables) {
-      Testable *testable = DecodeRawTestable(rawTestable, errorOut);
-      if (!testable) {
-        return nil;
-      }
-      [decodedTestables addObject:testable];
+    for (NSString *appTestBundle in appTests) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = appTestBundle;
+
+      testable.senTestList = @"All";
+      [result addObject:testable];
     }
-    return decodedTestables;
+    return result;
   } else if (xcodeSubjectInfo.testables) {
     return xcodeSubjectInfo.testables;
   } else {
-    // XXX
-    //*errorOut = [NSError errorWithDomain:@"xctool" code:100 userInfo:nil]
     return nil;
   }
+}
+
+static Testable *MatchingTestable(
+  NSString *target,
+  NSArray *logicTests,
+  NSDictionary *appTests,
+  XcodeSubjectInfo *xcodeSubjectInfo) {
+
+  for (NSString *logicTestBundle in logicTests) {
+    if ([target isEqualToString:logicTestBundle]) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = logicTestBundle;
+      return testable;
+    }
+  }
+
+  for (NSString *appTestBundle in appTests) {
+    if ([target isEqualToString:appTestBundle]) {
+      Testable *testable = [[Testable alloc] init];
+      testable.target = appTestBundle;
+      return testable;
+    }
+  }
+
+  return [xcodeSubjectInfo testableWithTarget:target];
+}
+
+static void PopulateTestableBuildSettings(
+  NSDictionary **defaultTestableBuildSettings,
+  NSDictionary **perTargetTestableBuildSettings,
+  NSArray *logicTests,
+  NSDictionary *appTests,
+  NSString *sdkName,
+  NSString *sdkPath) {
+  NSMutableDictionary *newDefaultTestableBuildSettings = [NSMutableDictionary dictionary];
+  NSMutableDictionary *newPerTargetTestableBuildSettings = [NSMutableDictionary dictionary];
+
+  newDefaultTestableBuildSettings[Xcode_SDKROOT] = sdkPath;
+  newDefaultTestableBuildSettings[Xcode_SDK_NAME] = sdkName;
+  // XXX figure out when to switch to @"2" for iPad
+  newDefaultTestableBuildSettings[Xcode_TARGETED_DEVICE_FAMILY] = @"1";
+
+  for (NSString *logicTest in logicTests) {
+    // XXX assert this actually is a full path on disk
+    NSString *logicTestDirName = [logicTest stringByDeletingLastPathComponent];
+    NSString *logicTestFileName = [logicTest lastPathComponent];
+    newPerTargetTestableBuildSettings[logicTest][Xcode_BUILT_PRODUCTS_DIR] = logicTestDirName;
+    newPerTargetTestableBuildSettings[logicTest][Xcode_FULL_PRODUCT_NAME] = logicTestFileName;
+  }
+
+  for (NSString *appTest in appTests) {
+    // XXX assert this actually is a full path on disk
+    NSString *appTestDirName = [appTest stringByDeletingLastPathComponent];
+    NSString *appTestFileName = [appTest lastPathComponent];
+    NSString *testHostPath = appTests[appTest];
+    newPerTargetTestableBuildSettings[appTest][Xcode_BUILT_PRODUCTS_DIR] = appTestDirName;
+    newPerTargetTestableBuildSettings[appTest][Xcode_FULL_PRODUCT_NAME] = appTestFileName;
+    newPerTargetTestableBuildSettings[appTest][Xcode_TEST_HOST] = testHostPath;
+  }
+
+  *defaultTestableBuildSettings = newDefaultTestableBuildSettings;
+  *perTargetTestableBuildSettings = newPerTargetTestableBuildSettings;
 }
 
 /// Break up an array into chunks of specified size
@@ -392,8 +395,7 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
   if (_onlyList.count == 0) {
     // Use whatever we found in the scheme, except for skipped tests.
     NSMutableArray *unskipped = [NSMutableArray array];
-    NSError *error = nil;
-    NSArray *allTestables = AllTestables(_testablesJSON, xcodeSubjectInfo, &error);
+    NSArray *allTestables = AllTestables(options.logicTests, options.appTests, xcodeSubjectInfo);
 
     for (Testable *testable in allTestables) {
       if (!testable.skipped) {
@@ -405,7 +407,7 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
     // Munge the list of testables from the scheme to only include those given.
     NSMutableArray *newTestables = [NSMutableArray array];
     for (NSDictionary *only in [self onlyListAsTargetsAndSenTestList]) {
-      Testable *matchingTestable = [xcodeSubjectInfo testableWithTarget:only[@"target"]];
+      Testable *matchingTestable = MatchingTestable(only[@"target"], options.logicTests, options.appTests, xcodeSubjectInfo);
 
       if (matchingTestable) {
         Testable *newTestable = [matchingTestable copy];
@@ -605,14 +607,13 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
   NSMutableArray *testableExecutionInfos = [NSMutableArray array];
   NSDictionary *defaultTestableBuildSettings;
   NSDictionary *perTargetTestableBuildSettings;
-  if (!DecodeTestableBuildSettings(
-        _defaultTestableBuildSettingsJSON,
-        _testableBuildSettingsJSON,
-        options.reporters,
+  PopulateTestableBuildSettings(
         &defaultTestableBuildSettings,
-        &perTargetTestableBuildSettings)) {
-    return NO;
-  }
+        &perTargetTestableBuildSettings,
+        options.logicTests,
+        options.appTests,
+        options.sdk,
+        options.sdkPath);
 
   ReportStatusMessageBegin(options.reporters, REPORTER_MESSAGE_INFO,
                            @"Collecting info for testables...");
@@ -623,7 +624,8 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
 
       NSDictionary *testableBuildSettings = nil;
       NSString *buildSettingsError = nil;
-      if (options.withoutXcode) {
+      // XXX cheesy
+      if (options.logicTests.count || options.appTests.count) {
         NSMutableDictionary *settings = [defaultTestableBuildSettings mutableCopy];
         [settings addEntriesFromDictionary:[perTargetTestableBuildSettings objectForKey:testable.target]];
         testableBuildSettings = settings;
