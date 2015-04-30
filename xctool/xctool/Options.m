@@ -182,6 +182,10 @@
                         description:@"Set the user default 'default' to 'value'"
                           paramName:@"-DEFAULT=VALUE"
                               mapTo:@selector(addUserDefault:)],
+    [Action actionOptionWithName:@"withoutXcode"
+                         aliases:nil
+                     description:@"Build without detecting settings from Xcode"
+                         setFlag:@selector(setWithoutXcode:)],
     ];
 }
 
@@ -319,7 +323,11 @@
     return (BOOL)(exists && isDirectory);
   };
 
-  if (!_workspace && !_project && !_findTarget) {
+  if (_withoutXcode) {
+    *xcodeSubjectInfoOut = [[XcodeSubjectInfo alloc] init];
+    return [self _validateActionsWithSubjectInfo:*xcodeSubjectInfoOut
+                                    errorMessage:errorMessage];
+  } else if (!_workspace && !_project && !_findTarget) {
     NSString *defaultProject = [self findDefaultProjectErrorMessage:errorMessage];
     if (!defaultProject) {
       return NO;
@@ -572,6 +580,12 @@
   [xcodeSubjectInfo loadSubjectInfo];
   ReportStatusMessageEnd(_reporters, REPORTER_MESSAGE_INFO, @"Loading settings for scheme '%@' ...", _scheme);
 
+  return [self _validateActionsWithSubjectInfo:xcodeSubjectInfo
+                                  errorMessage:errorMessage];
+}
+
+- (BOOL)_validateActionsWithSubjectInfo:(XcodeSubjectInfo *)xcodeSubjectInfo
+                           errorMessage:(NSString **)errorMessage {
   for (Action *action in _actions) {
     BOOL valid = [action validateWithOptions:self
                             xcodeSubjectInfo:xcodeSubjectInfo
