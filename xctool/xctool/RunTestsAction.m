@@ -214,21 +214,6 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
                      description:@"SPEC is TARGET[:Class/case[,Class2/case2]]"
                        paramName:@"SPEC"
                            mapTo:@selector(addOnly:)],
-    [Action actionOptionWithName:@"testablesJSON"
-                         aliases:nil
-                     description:@"JSON array of dictionaries of Testable objects"
-                       paramName:@"JSON"
-                           mapTo:@selector(setTestablesJSON:)],
-    [Action actionOptionWithName:@"defaultTestableBuildSettingsJSON"
-                         aliases:nil
-                     description:@"JSON dictionary of default Xcode build settings for all tests"
-                       paramName:@"JSON"
-                           mapTo:@selector(setDefaultTestableBuildSettingsJSON:)],
-    [Action actionOptionWithName:@"testableBuildSettingsJSON"
-                         aliases:nil
-                     description:@"JSON dictionary of test target names to Xcode build settings dictionary"
-                       paramName:@"JSON"
-                           mapTo:@selector(setTestableBuildSettingsJSON:)],
     [Action actionOptionWithName:@"freshSimulator"
                          aliases:nil
                      description:
@@ -383,7 +368,7 @@ NSArray *BucketizeTestCasesByTestClass(NSArray *testCases, int bucketSize)
   }
 
   for (NSDictionary *only in [self onlyListAsTargetsAndSenTestList]) {
-    if ([xcodeSubjectInfo testableWithTarget:only[@"target"]] == nil) {
+    if (MatchingTestable(only[@"target"], options.logicTests, options.appTests, xcodeSubjectInfo) == nil) {
       *errorMessage = [NSString stringWithFormat:@"run-tests: '%@' is not a testing target in this scheme.", only[@"target"]];
       return NO;
     }
