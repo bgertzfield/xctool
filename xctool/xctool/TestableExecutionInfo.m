@@ -107,8 +107,6 @@
 
   NSDictionary *allSettings = BuildSettingsFromOutput(output[@"stdout"]);
 
-  NSLog(@"allSettings: %@", allSettings);
-
   if ([allSettings count] > 1) {
     *error = @"Should only have build settings for a single target.";
     return nil;
