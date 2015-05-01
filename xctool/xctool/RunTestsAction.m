@@ -35,8 +35,8 @@
 static NSArray *AllTestables(
   NSArray *logicTests,
   NSDictionary *appTests,
-  XcodeSubjectInfo *xcodeSubjectInfo) {
-
+  XcodeSubjectInfo *xcodeSubjectInfo)
+{
   if (logicTests.count || appTests.count) {
     NSMutableArray *result = [NSMutableArray array];
     for (NSString *logicTestBundle in logicTests) {
@@ -67,8 +67,8 @@ static Testable *MatchingTestable(
   NSString *target,
   NSArray *logicTests,
   NSDictionary *appTests,
-  XcodeSubjectInfo *xcodeSubjectInfo) {
-
+  XcodeSubjectInfo *xcodeSubjectInfo)
+{
   for (NSString *logicTestBundle in logicTests) {
     if ([target isEqualToString:logicTestBundle]) {
       Testable *testable = [[Testable alloc] init];
@@ -94,15 +94,16 @@ static void PopulateTestableBuildSettings(
   NSArray *logicTests,
   NSDictionary *appTests,
   NSString *sdkName,
-  NSString *sdkPath) {
-  NSMutableDictionary *newDefaultTestableBuildSettings = [NSMutableDictionary dictionary];
+  NSString *sdkPath)
+{
+  *defaultTestableBuildSettings = @{
+    Xcode_SDK_NAME: sdkName,
+    Xcode_SDKROOT: sdkPath,
+    // XXX figure out when to switch to @"2" for iPad
+    Xcode_TARGETED_DEVICE_FAMILY: @"1",
+  };
+
   NSMutableDictionary *newPerTargetTestableBuildSettings = [NSMutableDictionary dictionary];
-
-  newDefaultTestableBuildSettings[Xcode_SDKROOT] = sdkPath;
-  newDefaultTestableBuildSettings[Xcode_SDK_NAME] = sdkName;
-  // XXX figure out when to switch to @"2" for iPad
-  newDefaultTestableBuildSettings[Xcode_TARGETED_DEVICE_FAMILY] = @"1";
-
   for (NSString *logicTest in logicTests) {
     // XXX assert this actually is a full path on disk
     NSString *logicTestDirName = [logicTest stringByDeletingLastPathComponent];
@@ -124,8 +125,6 @@ static void PopulateTestableBuildSettings(
       Xcode_TEST_HOST: testHostPath,
     };
   }
-
-  *defaultTestableBuildSettings = newDefaultTestableBuildSettings;
   *perTargetTestableBuildSettings = newPerTargetTestableBuildSettings;
 }
 
@@ -594,15 +593,6 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
                                                                   xcodeSubjectInfo:xcodeSubjectInfo];
 
   NSMutableArray *testableExecutionInfos = [NSMutableArray array];
-  NSDictionary *defaultTestableBuildSettings;
-  NSDictionary *perTargetTestableBuildSettings;
-  PopulateTestableBuildSettings(
-        &defaultTestableBuildSettings,
-        &perTargetTestableBuildSettings,
-        options.logicTests,
-        options.appTests,
-        options.sdk,
-        options.sdkPath);
 
   ReportStatusMessageBegin(options.reporters, REPORTER_MESSAGE_INFO,
                            @"Collecting info for testables...");
@@ -615,8 +605,17 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
       NSString *buildSettingsError = nil;
       // XXX cheesy
       if (options.logicTests.count || options.appTests.count) {
+        NSDictionary *defaultTestableBuildSettings = nil;
+        NSDictionary *perTargetTestableBuildSettings = nil;
+        PopulateTestableBuildSettings(
+                                      &defaultTestableBuildSettings,
+                                      &perTargetTestableBuildSettings,
+                                      options.logicTests,
+                                      options.appTests,
+                                      options.sdk,
+                                      options.sdkPath);
         NSMutableDictionary *settings = [defaultTestableBuildSettings mutableCopy];
-        [settings addEntriesFromDictionary:[perTargetTestableBuildSettings objectForKey:testable.target]];
+        [settings addEntriesFromDictionary:perTargetTestableBuildSettings[testable.target]];
         testableBuildSettings = settings;
       } else {
         testableBuildSettings = [TestableExecutionInfo
@@ -637,7 +636,8 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
                                               cpuType:_cpuType];
       } else {
         info = [[TestableExecutionInfo alloc] init];
-        info.buildSettingsError = buildSettingsError;
+        info.testable = testable;
+        info.buildSettingsError = buildSettingsError ?: @"Unknown build settings error";
       }
       @synchronized (self) {
         [testableExecutionInfos addObject:info];

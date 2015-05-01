@@ -188,9 +188,6 @@
                        paramName:@"BUNDLE"
                            mapTo:@selector(addLogicTest:)],
     [Action actionOptionWithMatcher:^(NSString *argument){
-      // Anything that looks like -DEFAULT=VALUE should get passed to xcodebuild
-      // as a command-line user default setting.  These let you override values
-      // in NSUserDefaults.
       return
         (BOOL)(([argument rangeOfString:@":"].length > 0));
     }

@@ -77,6 +77,7 @@
   NSString *workspacePath = [destination stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"xcworkspace"]];
 
   NSFileManager *fileManager = [NSFileManager defaultManager];
+  [fileManager removeItemAtPath:workspacePath error:nil];
   [fileManager createDirectoryAtPath:workspacePath
          withIntermediateDirectories:NO
                           attributes:@{}
