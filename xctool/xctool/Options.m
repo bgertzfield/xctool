@@ -187,13 +187,11 @@
                      description:@"Add a path to a logic test bundle to run"
                        paramName:@"BUNDLE"
                            mapTo:@selector(addLogicTest:)],
-    [Action actionOptionWithMatcher:^(NSString *argument){
-      return
-        (BOOL)(([argument rangeOfString:@":"].length > 0));
-    }
-                        description:@"Add a path to an app test bundle with the path to its host app"
-                          paramName:@"BUNDLE:HOST_APP"
-                              mapTo:@selector(addAppTest:)],
+    [Action actionOptionWithName:@"appTest"
+                         aliases:nil
+                     description:@"Add a path to an app test bundle with the path to its host app"
+                       paramName:@"BUNDLE:HOST_APP"
+                           mapTo:@selector(addAppTest:)],
     ];
 }
 
@@ -257,7 +255,7 @@
     NSString *hostApp = [argument substringFromIndex:colonRange.location + 1];
     _appTests[testBundle] = hostApp;
   } else {
-    NSAssert(NO, @"Parameter %@ must be in the form testbundle:hostapp", argument);
+    NSAssert(NO, @"Parameter %@ must be in the form test_bundle:host_app", argument);
   }
 }
 

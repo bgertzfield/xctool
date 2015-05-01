@@ -96,6 +96,9 @@ static void PopulateTestableBuildSettings(
   NSString *sdkName,
   NSString *sdkPath)
 {
+  NSCAssert(sdkName, @"Sdk name should be specified using -sdk option");
+  NSCAssert(sdkPath, @"Sdk path should be known");
+
   *defaultTestableBuildSettings = @{
     Xcode_SDK_NAME: sdkName,
     Xcode_SDKROOT: sdkPath,
