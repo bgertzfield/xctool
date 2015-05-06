@@ -606,7 +606,7 @@ typedef BOOL (^TestableBlock)(NSArray *reporters);
 
       NSDictionary *testableBuildSettings = nil;
       NSString *buildSettingsError = nil;
-      // XXX cheesy
+      // Skip discovering test settings from Xcode if -logicTests or -appTests are passed.
       if (options.logicTests.count || options.appTests.count) {
         NSDictionary *defaultTestableBuildSettings = nil;
         NSDictionary *perTargetTestableBuildSettings = nil;
