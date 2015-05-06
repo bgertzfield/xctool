@@ -818,4 +818,40 @@ static BOOL areEqualJsonOutputsIgnoringKeys(NSString *output1, NSString *output2
   assertThat(BucketizeTestCasesByTestClass(@[], 3), equalTo(@[@[]]));
 }
 
+- (void)testPassingLogicTestViaCommandLine
+{
+  [[FakeTaskManager sharedManager] runBlockWithFakeTasks:^{
+    [[FakeTaskManager sharedManager] addLaunchHandlerBlocks:@[
+     [LaunchHandlers handlerForOtestQueryReturningTestList:@[@"FakeTest/TestA", @"FakeTest/TestB"]],
+     ]];
+
+    XCTool *tool = [[XCTool alloc] init];
+
+    tool.arguments = @[@"-logicTest", TEST_DATA @"tests-ios-test-bundle/TestProject-LibraryTests.octest"
+                       @"-sdk", @"iphonesimulator",
+                       @"-destination", @"arch=i386",
+                       @"run-tests",
+                       @"-reporter", @"plain",
+                       ];
+
+    __block OCUnitTestRunner *runner = nil;
+
+    [Swizzler whileSwizzlingSelector:@selector(runTests)
+                 forInstancesOfClass:[OCUnitTestRunner class]
+                           withBlock:
+     ^(id self, SEL sel){
+       // Don't actually run anything and just save a reference to the runner.
+       runner = self;
+       // Pretend tests succeeded.
+       return YES;
+     }
+                            runBlock:
+     ^{
+       [TestUtil runWithFakeStreams:tool];
+
+       assertThat(runner, notNilValue());
+     }];
+  }];
+}
+
 @end
