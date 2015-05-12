@@ -176,11 +176,12 @@ void LaunchTaskAndFeedOuputLinesToBlock(NSTask *task, NSString *description, voi
   };
 
   // Uses poll() to block until data (or EOF) is available.
-  BOOL (^pollForData)(int fd) = ^(int fd) {
+  short (^pollForData)(int fd) = ^short(int fd) {
     for (;;) {
       struct pollfd fds[1] = {0};
       fds[0].fd = fd;
-      fds[0].events = (POLLIN | POLLHUP);
+      // We'll get POLLIN and/or POLLHUP in fds[0].revents upon poll() returning > 0.
+      fds[0].events = POLLIN;
 
       int result = poll(fds,
                         sizeof(fds) / sizeof(fds[0]),
@@ -189,10 +190,10 @@ void LaunchTaskAndFeedOuputLinesToBlock(NSTask *task, NSString *description, voi
 
       if (result > 0) {
         // Data ready or EOF!
-        return YES;
+        return fds[0].revents;
       } else if (result == 0) {
-        // No data available.
-        return NO;
+        // No data available within the 1000 ms timeout.
+        return 0;
       } else if (result == -1 && errno == EAGAIN) {
         // It could work next time.
         continue;
@@ -216,29 +217,41 @@ void LaunchTaskAndFeedOuputLinesToBlock(NSTask *task, NSString *description, voi
   BOOL keepPolling = YES;
 
   while (keepPolling) {
-    pollForData(stdoutReadFD);
+    short pollEvents = pollForData(stdoutReadFD);
 
-    // Read whatever we can get.
-    for (;;) {
-      ssize_t bytesRead = read(stdoutReadFD, readBuffer, sizeof(readBuffer));
-      if (bytesRead > 0) {
-        @autoreleasepool {
-          [buffer appendBytes:readBuffer length:bytesRead];
-          processBuffer();
+    if (pollEvents & POLLNVAL) {
+      fprintf(stderr, "poll() on fd %d failed with POLLNVAL (someone closed the fd)\n", stdoutReadFD);
+      abort();
+    }
+
+    if (pollEvents & POLLIN) {
+      // Read whatever we can get.
+      BOOL keepReading = YES;
+      while (keepReading) {
+        ssize_t bytesRead = read(stdoutReadFD, readBuffer, sizeof(readBuffer));
+        if (bytesRead > 0) {
+          @autoreleasepool {
+            [buffer appendBytes:readBuffer length:bytesRead];
+            processBuffer();
+          }
+          // Loop to read again.
+        } else if (bytesRead == -1 && errno == EAGAIN) {
+          // No more data available at the moment. Stop reading and pollForData() again.
+          keepReading = NO;
+        } else if (bytesRead == 0) {
+          // End of file. We're done.
+          keepReading = NO;
+          keepPolling = NO;
+        } else if (bytesRead == -1) {
+          fprintf(stderr, "read() failed with: %s\n", strerror(errno));
+          abort();
         }
-      } else if ((bytesRead == 0) ||
-                 (![task isRunning] && bytesRead == -1 && errno == EAGAIN)) {
-        // We got an EOF - OR - we're calling it quits because the process has exited and it
-        // appears there's no data left to be read.
-        keepPolling = NO;
-        break;
-      } else if (bytesRead == -1 && errno == EAGAIN) {
-        // Nothing left to read - poll() until more comes.
-        break;
-      } else if (bytesRead == -1) {
-        fprintf(stderr, "read() failed with: %s\n", strerror(errno));
-        abort();
       }
+    }
+
+    if (pollEvents & POLLHUP) {
+      // The process exited (possibly without ever providing data); we're done polling.
+      keepPolling = NO;
     }
   }
 
@@ -427,4 +440,3 @@ NSTask *CreateTaskForSimulatorExecutable(NSString *sdkName,
 
   return task;
 }
-
