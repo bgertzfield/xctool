@@ -18,6 +18,10 @@
 
 #import <poll.h>
 
+#import <sys/event.h>
+#import <sys/time.h>
+#import <sys/types.h>
+
 #import "NSConcreteTask.h"
 #import "Swizzle.h"
 #import "XCToolUtil.h"
@@ -175,85 +179,117 @@ void LaunchTaskAndFeedOuputLinesToBlock(NSTask *task, NSString *description, voi
     [buffer replaceBytesInRange:NSMakeRange(0, offset) withBytes:NULL length:0];
   };
 
-  // Uses poll() to block until data (or EOF) is available.
-  short (^pollForData)(int fd) = ^short(int fd) {
-    for (;;) {
-      struct pollfd fds[1] = {0};
-      fds[0].fd = fd;
-      // We'll get POLLIN and/or POLLHUP in fds[0].revents upon poll() returning > 0.
-      fds[0].events = POLLIN;
-
-      int result = poll(fds,
-                        sizeof(fds) / sizeof(fds[0]),
-                        // wait as long as 1 second.
-                        1000);
-
-      if (result > 0) {
-        // Data ready or EOF!
-        return fds[0].revents;
-      } else if (result == 0) {
-        // No data available within the 1000 ms timeout.
-        return 0;
-      } else if (result == -1 && errno == EAGAIN) {
-        // It could work next time.
-        continue;
-      } else {
-        fprintf(stderr, "poll() failed with: %s\n", strerror(errno));
-        abort();
-      }
-    }
-  };
-
   // NSTask will automatically close the write-side of the pipe in our process, so only the new
   // process will have an open handle.  That means when that process exits, we'll automatically
   // see an EOF on the read-side since the last remaining ref to the write-side closed. (Corner
   // case: the process forks, the parent exits, but the kid keeps running with the FD open. We
-  // handle that with the `[task isRunning]` check below.)
+  // handle that with the EVFILT_PROC NOTE_EXIT check below.)
   [task setStandardOutput:stdoutPipe];
 
   LaunchTaskAndMaybeLogCommand(task, description);
+
+  int taskPID = [task processIdentifier];
+  int queue = kqueue();
+  if (queue == -1) {
+    fprintf(stderr, "kqueue() failed: %s\n", strerror(errno));
+    abort();
+  }
+
+  struct kevent64_s events[2];
+  EV_SET64(&events[0], stdoutReadFD, EVFILT_READ, EV_ADD, 0, 0, 0, 0, 0);
+  EV_SET64(&events[1], taskPID, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, 0, 0, 0);
+
+  // Add two events to the kqueue:
+  //
+  // 1) Check if any data is available to read on 'stdoutReadFD'.
+  // 2) Check if the process with pid 'taskPID' has exited.
+  //
+  // Then, sleep for at most 'timeout' seconds until at least one of those events fires.
+  const struct timespec timeout = { 1, 0 };
+  int numEventsFired = kevent64(
+    queue,
+    events,
+    sizeof(events) / sizeof(events[0]),
+    events,
+    sizeof(events) / sizeof(events[0]),
+    0,
+    &timeout);
 
   uint8_t readBuffer[32768] = {0};
   BOOL keepPolling = YES;
 
   while (keepPolling) {
-    short pollEvents = pollForData(stdoutReadFD);
-
-    if (pollEvents & POLLNVAL) {
-      fprintf(stderr, "poll() on fd %d failed with POLLNVAL (someone closed the fd)\n", stdoutReadFD);
+    if (numEventsFired == -1) {
+      fprintf(stderr, "kevent64() failed: %s\n", strerror(errno));
       abort();
     }
 
-    if (pollEvents & POLLIN) {
-      // Read whatever we can get.
-      BOOL keepReading = YES;
-      while (keepReading) {
-        ssize_t bytesRead = read(stdoutReadFD, readBuffer, sizeof(readBuffer));
-        if (bytesRead > 0) {
-          @autoreleasepool {
-            [buffer appendBytes:readBuffer length:bytesRead];
-            processBuffer();
+    for (int eventIdx = 0; eventIdx < numEventsFired; eventIdx++) {
+      if (events[eventIdx].flags & EV_ERROR) {
+        int eventErrno = (int)events[eventIdx].data;
+        fprintf(stderr, "kevent64() event %d failed with: %s\n", eventIdx, strerror(eventErrno));
+        abort();
+      }
+
+      switch (events[eventIdx].filter) {
+        case EVFILT_READ:
+        {
+          if (events[eventIdx].flags & EV_EOF) {
+            // End of file. We're done. (But there might be some data to read still.)
+            keepPolling = NO;
           }
-          // Loop to read again.
-        } else if (bytesRead == -1 && errno == EAGAIN) {
-          // No more data available at the moment. Stop reading and pollForData() again.
-          keepReading = NO;
-        } else if (bytesRead == 0) {
-          // End of file. We're done.
-          keepReading = NO;
-          keepPolling = NO;
-        } else if (bytesRead == -1) {
-          fprintf(stderr, "read() failed with: %s\n", strerror(errno));
-          abort();
+
+          // kevent64() kindly tells us the number of bytes we can read in the 'data'
+          // field, so we don't need to loop. However, we can only read as many bytes fit in
+          // 'readBuffer', so we might read less than that many bytes.
+          size_t bytesToRead = MIN(events[eventIdx].data, sizeof(readBuffer));
+          ssize_t bytesRead = read(stdoutReadFD, readBuffer, bytesToRead);
+          if (bytesRead > 0) {
+            @autoreleasepool {
+              [buffer appendBytes:readBuffer length:bytesRead];
+              processBuffer();
+            }
+          } else if (bytesRead == 0) {
+            // End of file. We're done.
+            keepPolling = NO;
+          } else if (bytesRead == -1) {
+            // This shouldn't happen (even with EAGAIN), since kevent64() told us
+            // exactly how many bytes we had available to read.
+            fprintf(stderr, "read() failed with: %s\n", strerror(errno));
+            abort();
+          }
+          break;
         }
+
+        case EVFILT_PROC:
+          if (events[eventIdx].fflags & NOTE_EXIT) {
+            // The process exited (possibly without ever providing data); we're done polling.
+            keepPolling = NO;
+          } else {
+            fprintf(stderr, "Unexpected fflags in kevent for pid %d: 0x%08X\n", taskPID, events[eventIdx].fflags);
+            abort();
+          }
+          break;
+
+        default:
+          fprintf(stderr, "Unexpected kevent filter: %d\n", events[eventIdx].filter);
+          abort();
       }
     }
 
-    if (pollEvents & POLLHUP) {
-      // The process exited (possibly without ever providing data); we're done polling.
-      keepPolling = NO;
-    }
+    // Sleep for at most 'timeout' seconds until at least one of the previously-registered events fires.
+    numEventsFired = kevent64(
+      queue,
+      NULL,
+      0,
+      events,
+      sizeof(events) / sizeof(events[0]),
+      0,
+      &timeout);
   }
+
+  // We're done with the kqueue; release its kernel resources.
+  close(queue);
 
   [task waitUntilExit];
 }
