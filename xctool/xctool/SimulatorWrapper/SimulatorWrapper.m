@@ -96,6 +96,7 @@ static const NSString * kOtestShimStderrFilePath __unused = @"OTEST_SHIM_STDERR_
           appLaunchArgs:(NSArray *)launchArgs
    appLaunchEnvironment:(NSDictionary *)launchEnvironment
       feedOutputToBlock:(void (^)(NSString *))feedOutputToBlock
+              reporters:(NSArray *)reporters
                   error:(NSError **)error
 {
   NSString *outputPath = MakeTempFileWithPrefix(@"output");
@@ -104,6 +105,14 @@ static const NSString * kOtestShimStderrFilePath __unused = @"OTEST_SHIM_STDERR_
   LineReader *reader = [[LineReader alloc] initWithFileHandle:outputHandle];
   reader.didReadLineBlock = feedOutputToBlock;
 
+  ReportStatusMessageBegin(reporters,
+                           REPORTER_MESSAGE_INFO,
+                           @"Running test host app %@ in sim %@, args %@, launch environment %@, output path %@",
+                           testHostAppPath,
+                           [simInfo simulatedDeviceInfoName],
+                           launchArgs,
+                           launchEnvironment,
+                           outputPath);
   DTiPhoneSimulatorSessionConfig *sessionConfig =
     [[self classBasedOnCurrentVersionOfXcode] sessionConfigForRunningTestsOnSimulator:simInfo
                                                                 applicationLaunchArgs:launchArgs
@@ -117,8 +126,21 @@ static const NSString * kOtestShimStderrFilePath __unused = @"OTEST_SHIM_STDERR_
   [reader startReading];
 
   BOOL simStartedSuccessfully = [launcher launchAndWaitForExit];
-  if (!simStartedSuccessfully && error) {
-    *error = launcher.launchError;
+
+  if (!simStartedSuccessfully) {
+    ReportStatusMessageEnd(reporters,
+                           REPORTER_MESSAGE_ERROR,
+                           @"Error running test host app %@: %@",
+                           testHostAppPath,
+                           launcher.launchError);
+    if (error) {
+      *error = launcher.launchError;
+    }
+  } else {
+    ReportStatusMessageEnd(reporters,
+                           REPORTER_MESSAGE_INFO,
+                           @"Finished running test host app %@.",
+                           testHostAppPath);
   }
 
   [reader stopReading];

@@ -37,6 +37,7 @@
           appLaunchArgs:(NSArray *)launchArgs
    appLaunchEnvironment:(NSDictionary *)launchEnvironment
       feedOutputToBlock:(void (^)(NSString *))feedOutputToBlock
+              reporters:(NSArray *)reporters
                   error:(NSError **)error;
 
 + (BOOL)uninstallTestHostBundleID:(NSString *)testHostBundleID

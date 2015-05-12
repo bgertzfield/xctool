@@ -213,6 +213,7 @@ static const NSInteger kMaxRunTestsAttempts = 3;
                                               appLaunchArgs:[self testArguments]
                                        appLaunchEnvironment:[self otestEnvironmentWithOverrides:[self.simulatorInfo simulatorLaunchEnvironment]]
                                           feedOutputToBlock:outputLineBlock
+                                                  reporters:_reporters
                                                       error:&error];
 
     if (infraSucceeded) {
