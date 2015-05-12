@@ -16,6 +16,8 @@
 
 #import "SimulatorLauncher.h"
 
+#import "ReportStatus.h"
+
 static BOOL __didLoadAllPlatforms = NO;
 
 // class-dump'ed from DVTFoundation
@@ -33,6 +35,7 @@ static BOOL __didLoadAllPlatforms = NO;
 @property (nonatomic, strong) NSError *didEndWithError;
 @property (nonatomic, strong) DTiPhoneSimulatorSession *session;
 @property (nonatomic, strong) NSError *launchError;
+@property (nonatomic, copy) NSArray *reporters;
 @end
 
 @implementation SimulatorLauncher
@@ -57,7 +60,8 @@ static BOOL __didLoadAllPlatforms = NO;
 }
 
 - (instancetype)initWithSessionConfig:(DTiPhoneSimulatorSessionConfig *)sessionConfig
-                 deviceName:(NSString *)deviceName
+                           deviceName:(NSString *)deviceName
+                            reporters:(NSArray *)reporters;
 {
   if (self = [super init]) {
     NSAssert(__didLoadAllPlatforms,
@@ -66,6 +70,10 @@ static BOOL __didLoadAllPlatforms = NO;
 
     // Set the device type if supplied
     if (deviceName) {
+      ReportStatusMessage(
+        _reporters,
+        REPORTER_MESSAGE_INFO,
+        @"Setting simulated device to %@", deviceName);
       CFPreferencesSetAppValue((CFStringRef)@"SimulateDevice", (__bridge CFPropertyListRef)deviceName, (CFStringRef)@"com.apple.iphonesimulator");
       CFPreferencesAppSynchronize((CFStringRef)@"com.apple.iphonesimulator");
     }
@@ -73,17 +81,36 @@ static BOOL __didLoadAllPlatforms = NO;
     _session = [[DTiPhoneSimulatorSession alloc] init];
     [_session setSessionConfig:sessionConfig];
     [_session setDelegate:self];
+
+    _reporters = reporters;
   }
   return self;
 }
 
 - (BOOL)launchAndWaitForExit
 {
+  ReportStatusMessageBegin(
+    _reporters,
+    REPORTER_MESSAGE_INFO,
+    @"Requesting simulator session start with config %@, timeout %d",
+    [_session sessionConfig],
+    [_launchTimeout intValue]);
+
   NSError *error = nil;
   if (![_session requestStartWithConfig:[_session sessionConfig] timeout:[_launchTimeout intValue] error:&error]) {
     _launchError = error;
+    ReportStatusMessageEnd(
+      _reporters,
+      REPORTER_MESSAGE_ERROR,
+      @"Failed to start simulator session, error %@",
+      error);
     return NO;
   }
+
+  ReportStatusMessageEnd(
+    _reporters,
+    REPORTER_MESSAGE_INFO,
+    @"Polling and waiting for simulator session to exit.");
 
   while (!_didQuit && !_didFailToStart) {
     CFRunLoopRun();
@@ -110,7 +137,18 @@ static BOOL __didLoadAllPlatforms = NO;
 - (void)session:(DTiPhoneSimulatorSession *)session didEndWithError:(NSError *)error
 {
   if (error) {
+    ReportStatusMessage(
+      _reporters,
+      REPORTER_MESSAGE_ERROR,
+      @"Simulator session ended with error: %@",
+      error);
+
     _didEndWithError = error;
+  } else {
+    ReportStatusMessage(
+      _reporters,
+      REPORTER_MESSAGE_INFO,
+      @"Simulator session ended cleanly.");
   }
   _didQuit = YES;
 
@@ -120,8 +158,17 @@ static BOOL __didLoadAllPlatforms = NO;
 - (void)session:(DTiPhoneSimulatorSession *)session didStart:(BOOL)started withError:(NSError *)error
 {
   if (started) {
+    ReportStatusMessage(
+      _reporters,
+      REPORTER_MESSAGE_INFO,
+      @"Simulator session started.");
     _didStart = YES;
   } else {
+    ReportStatusMessage(
+      _reporters,
+      REPORTER_MESSAGE_ERROR,
+      @"Simulator session failed to start, error: %@",
+      error);
     _launchError = error;
     _didFailToStart = YES;
   }

@@ -120,7 +120,8 @@ static const NSString * kOtestShimStderrFilePath __unused = @"OTEST_SHIM_STDERR_
                                                                            outputPath:outputPath];
 
   SimulatorLauncher *launcher = [[SimulatorLauncher alloc] initWithSessionConfig:sessionConfig
-                                                                      deviceName:[simInfo simulatedDeviceInfoName]];
+                                                                      deviceName:[simInfo simulatedDeviceInfoName]
+                                                                       reporters:reporters];
   launcher.launchTimeout = [simInfo launchTimeout];
 
   [reader startReading];

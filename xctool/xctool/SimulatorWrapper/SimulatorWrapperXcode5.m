@@ -26,7 +26,10 @@
 #pragma mark -
 #pragma mark Helpers
 
-+ (BOOL)runMobileInstallationHelperWithArguments:(NSArray *)arguments simulatorInfo:(SimulatorInfo *)simInfo error:(NSError **)error
++ (BOOL)runMobileInstallationHelperWithArguments:(NSArray *)arguments
+                                   simulatorInfo:(SimulatorInfo *)simInfo
+                                       reporters:(NSArray *)reporters
+                                           error:(NSError **)error
 {
   DTiPhoneSimulatorSystemRoot *systemRoot = [simInfo systemRootForSimulatedSdk];
 
@@ -43,7 +46,8 @@
   [sessionConfig setSimulatedDeviceInfoName:[simInfo simulatedDeviceInfoName]];
 
   SimulatorLauncher *launcher = [[SimulatorLauncher alloc] initWithSessionConfig:sessionConfig
-                                                                       deviceName:[simInfo simulatedDeviceInfoName]];
+                                                                      deviceName:[simInfo simulatedDeviceInfoName]
+                                                                       reporters:reporters];
   launcher.launchTimeout = [simInfo launchTimeout];
 
   BOOL simStartedSuccessfully = [launcher launchAndWaitForExit];
@@ -65,6 +69,7 @@
   NSError *localError = nil;
   BOOL uninstalled = [self runMobileInstallationHelperWithArguments:@[@"uninstall", testHostBundleID]
                                                       simulatorInfo:simInfo
+                                                          reporters:reporters
                                                               error:&localError];
   if (!uninstalled) {
     *error = [NSString stringWithFormat:
@@ -84,6 +89,7 @@
   NSError *localError = nil;
   BOOL installed = [self runMobileInstallationHelperWithArguments:@[@"install", testHostBundlePath,]
                                                     simulatorInfo:simInfo
+                                                        reporters:reporters
                                                             error:&localError];
   if (!installed) {
     *error = [NSString stringWithFormat:

@@ -25,7 +25,8 @@
 
 + (void)loadAllPlatforms;
 - (instancetype)initWithSessionConfig:(DTiPhoneSimulatorSessionConfig *)sessionConfig
-                 deviceName:(NSString *)deviceName;
+                           deviceName:(NSString *)deviceName
+                            reporters:(NSArray *)reporters;
 - (BOOL)launchAndWaitForExit;
 - (BOOL)launchAndWaitForStart;
 
